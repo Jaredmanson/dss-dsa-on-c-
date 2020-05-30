@@ -1,32 +1,417 @@
-# Prerequisites
-*.d
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+extern "C"
 
-# Precompiled Headers
-*.gch
-*.pch
+{
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+#include "miracle.h"
 
-# Fortran module files
-*.mod
-*.smod
+}
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+#include <ctime>
+#include <cstring>
+#include <iostream>
 
-# Executables
-*.exe
-*.out
-*.app
+class DSA
+
+{
+
+public:
+
+big p, q, g; // открытые параметры алгоритма
+
+csprng rng; // криптографический стойкий генератор ПСЧ
+
+void sign(void *msg, int len, big x, big r, big s); // подпись
+
+bool check(void *msg, int len, big y, big r, big s); // проверка
+
+void genKeys(big x, big y); // генерация ключевой пары
+
+void genOpenParams(char *seed, int len); // генерация открытых параметров
+
+DSA(char *seed, int len);
+
+~DSA();
+
+};
+
+// здесь во всю используется бблиотека miracl, big -- число большой разрядности
+
+inline void sha_string(char* msg, int len, char* tmp) // хеширование в строку
+
+{
+
+sha sha; // sha1 хеш
+
+shs_init(&sha); // инициализация
+
+for (int i = 0; i < len; i++)
+
+shs_process(&sha, msg[i]); // хешируем сообщение
+
+shs_hash(&sha, tmp); // записываем результат в выходной буфер
+
+}
+
+inline void sha_string(char* msg, int len, big t) // хеширование в big число
+
+{
+
+char tmp[20];
+
+sha_string(msg, len, tmp); // хешируем в строку
+
+bytes_to_big(20, tmp, t); // преобразуем строку в число
+
+}
+
+inline void inc(char *seed, int len) // увеличиваем seed на 1, используется при генерации открытых параметров
+
+{
+
+seed[len - 1]++; // инкрементируем младший байт
+
+for (int i = len - 2; i >= 0; i--) // идем начиная с предпоследнего
+
+{
+
+if (seed[i + 1] == 0) // если байт 0 -- считаем что произошло переполнение
+
+seed[i]++; // и увеличиваем старший байт на один
+
+else
+
+break; // при первом отсутствии переполнения выходим из цикла
+
+}
+
+}
+
+DSA::DSA(char *seed, int len)
+
+{
+
+strong_init(&rng, len, seed, time(NULL)); // инициализация генератора
+
+ПСЧ
+
+}
+
+DSA::~DSA()
+
+{
+
+mirkill(p); // освобождаем память
+
+mirkill(q);
+
+mirkill(g);
+
+}
+
+void DSA::sign(void *msg, int len, big x, big r, big s)
+
+{
+
+big k = mirvar(0); // раундовый ключ
+
+big t = mirvar(0); // временная переменная
+
+strong_bigrand(&rng, q, k); // заполняем k случайным числом меньшим q
+
+powmod(g, k, p, r); // вычисляем r по модулю p
+
+divide(r, q, q); // теперь берем по модулю q
+
+sha_string((char*)msg, len, t); // хешируем сообщение
+
+multiply(x, r, s); // расчет s
+
+add(s, t, s);
+
+divide(s, q, q);
+
+xgcd(k, q, k, k, k); // поиск обратного элемента
+
+multiply(s, k, s);
+
+divide(s, q, q);
+
+mirkill(k); // подчищаем
+
+mirkill(t);
+
+}
+
+bool DSA::check(void *msg, int len, big y, big r, big s)
+
+{
+
+big w = mirvar(0), u1 = mirvar(0), u2 = mirvar(0), v = mirvar(0);
+
+copy(s, w);
+
+xgcd(w, q, w, w, w); // w=1/s
+
+sha_string((char*)msg, len, u1); // хешируем
+
+multiply(u1, w, u1); // домножаем
+
+multiply(r, w, u2);
+
+powmod2(g, u1, y, u2, p, v); // двойное возведение в степень,
+
+v=g^u1*y^u2 mod p
+
+divide(v, q, q); // приводим по модулю q
+
+bool res = !compare(v, r); // compare вернет 0 при совпадении
+
+переменных
+
+mirkill(w); mirkill(u1); mirkill(u2); mirkill(v);
+
+return res;
+
+}
+
+void DSA::genKeys(big x, big y)
+
+{
+
+strong_bigrand(&rng, q, x); // случайных закрытый ключ
+
+powmod(g, x, p, y); // открытый
+
+}
+
+void DSA::genOpenParams(char *seed, int len) // стр 11 fips 186-1
+
+{
+
+p = mirvar(0);
+
+q = mirvar(0);
+
+g = mirvar(0);
+
+do
+
+{
+
+// step 2
+
+char u[20];
+
+sha_string(seed, len, u); //певый операнд в u
+
+inc(seed, len); // seed = seed + 1
+
+char t[20];
+
+sha_string(seed, len, t); // второй операнд
+
+for (int i = 0; i < 20; i++) // xor
+
+u[i] ^= t[i];
+
+//step 3
+
+u[0] |= 1;
+
+u[len - 1] |= 1 << 7;
+
+bytes_to_big(20, u, q); // переводим массив байт в число
+
+} while (!isprime(q)); // step 4
+
+big X = mirvar(0);
+
+big t = mirvar(1);
+
+sftbit(t, 1023, t); // t=2^(L-1)
+
+do
+
+{
+
+inc(seed, len); // вместе с первым inc в следующем цикле образует
+
+offset=2
+
+char V[1024 / 8];
+
+char *ptr = V; // указатель на Vk
+
+for (int k = 0; k < 1024 / 160; k++) // step 7
+
+{
+
+inc(seed, len); // seed += 1
+
+sha_string(seed, len, ptr); // Vk=SHA1(seed+offset+k)
+
+ptr += 20; // по сути K++, переход к следующей части буфера
+
+}
+
+bytes_to_big(sizeof(V), V, X); // step 8
+
+add(X, t, X); // в t 2^(L-1)
+
+//step 9
+
+sftbit(q, 1, q); // q=2q, побитовый сдвиг
+
+copy(X, t); // t=X
+
+divide(t, q, q); // t=X mod 2q, в документации это c
+
+sftbit(q, -1, q); // q=2q/2=q
+
+decr(t, 1, t); // c-1
+
+subtract(X, t, p); // p=X-(c-1)
+
+convert(1, t); // востанавливаем 2^(L-1) в t
+
+sftbit(t, 1023, t);
+
+if (compare(p, t) == -1) // step 10
+
+goto loopend;
+
+if (isprime(p))
+
+break; // если p простое -- выходим из цикла
+
+loopend:
+
+inc(seed, len); // по сути offset+=1
+
+} while (true);
+
+copy(p, X); // X=p
+
+decr(X, 1, X); // X=p-1
+
+copy(q, t); // t=q
+
+xgcd(t, p, t, t, t); //t=1/q
+
+multiply(X, t, X); // X=(p-1)/q
+
+divide(X, p, p); // X=(p-1)/q mod p, в документации на 7 стр, степень при
+
+h
+
+do
+
+{
+
+bigrand(q, t);// по сути t=h
+
+powmod(t, X, p, g); // генерация g=h^((p-1)/q) mod p
+
+} while (size(g) == 1); // пока g=1
+
+mirkill(X);
+
+mirkill(t);
+
+}
+
+template<typename Signature>
+
+void test(char *msg, char *alg) // тест подписи
+
+{
+
+char seed[20] = { 1, 2, 3, 4, 5, 6, 7 }; // зерно
+
+Signature sign(seed, sizeof(seed));
+
+sign.genOpenParams(seed, sizeof(seed)); // генерация открытых
+
+параметров
+
+big x = mirvar(0), y = mirvar(0); // ключи
+
+sign.genKeys(x, y); // их генерация
+
+std::cout << "Testing " << alg << ": " << std::endl;
+
+big r = mirvar(0), s = mirvar(0); // подпись
+
+sign.sign(msg, strlen(msg), x, r, s); // подписываем
+
+std::cout << "Sing: ";
+
+char num[1000];
+
+cotstr(r, num); // функция, конвертирующая big в строку, часть miracl
+
+std::cout << num << std::endl;
+
+cotstr(s, num);
+
+std::cout << num << std::endl;
+
+if (sign.check(msg, strlen(msg), y, r, s)) // проверяем подпись
+
+std::cout << "Sign match" << std::endl;
+
+else
+
+std::cout << "Sign mismatch" << std::endl;
+
+msg[0] ^= 1; // меняем сообщение
+
+std::cout << "Changing msg... msg: " << msg << ": ";
+
+if (sign.check(msg, strlen(msg), y, r, s)) // проверяем отклонение подписи
+
+std::cout << "Sign match" << std::endl;
+
+else
+
+std::cout << "Sign mismatch" << std::endl;
+
+msg[0] ^= 1; // востанавлдиваем сообщение
+
+incr(r, 1, r); // и портим подпись
+
+std::cout << "Restoring msg and changing r: ";
+
+if (sign.check(msg, strlen(msg), y, r, s)) // проверяем отклонение подписи
+
+std::cout << "Sign match" << std::endl;
+
+else
+
+std::cout << "Sign mismatch" << std::endl;
+
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+
+{
+
+mirsys(64 * 3, 0)->IOBASE = 16; // инициализируем miracl, ввод-вывод в
+
+16й системе
+
+char msg[1024]; // сообщение
+
+std::cout << "Enter msg:> ";
+
+std::cin.getline(msg, sizeof(msg));
+
+test<DSA>(msg, "DSA"); // тестируем DSA
+
+system("pause");
+
+return 0;
+
+}
+
